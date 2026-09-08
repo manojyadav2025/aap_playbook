@@ -1,0 +1,71 @@
+---
+- name: RHEL 9 Basic Health Check
+  hosts: all
+  become: true
+  gather_facts: true
+
+  tasks:
+
+    - name: Display Host Information
+      debug:
+        msg:
+          - "Hostname: {{ ansible_hostname }}"
+          - "OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - "Kernel: {{ ansible_kernel }}"
+          - "Uptime: {{ ansible_uptime_seconds // 86400 }} days"
+
+    - name: Check CPU Load
+      shell: uptime
+      register: cpu_load
+      changed_when: false
+
+    - name: Display CPU Load
+      debug:
+        var: cpu_load.stdout
+
+    - name: Check Memory Usage
+      shell: free -h
+      register: memory_usage
+      changed_when: false
+
+    - name: Display Memory Usage
+      debug:
+        var: memory_usage.stdout_lines
+
+    - name: Check Disk Usage
+      shell: df -hP
+      register: disk_usage
+      changed_when: false
+
+    - name: Display Disk Usage
+      debug:
+        var: disk_usage.stdout_lines
+
+    - name: Check Failed Systemd Services
+      shell: systemctl --failed --no-legend
+      register: failed_services
+      changed_when: false
+
+    - name: Display Failed Services
+      debug:
+        msg: "{{ failed_services.stdout_lines | default(['No failed services']) }}"
+
+    - name: Check Important Services
+      service_facts:
+
+    - name: Display SSH Service Status
+      debug:
+        msg: "SSH status: {{ ansible_facts.services['sshd.service'].state | default('Not Found') }}"
+
+    - name: Check Root Filesystem
+      shell: df -hP / | tail -1
+      register: root_fs
+      changed_when: false
+
+    - name: Display Root Filesystem
+      debug:
+        var: root_fs.stdout
+
+    - name: Health Check Completed
+      debug:
+        msg: "Health check completed successfully on {{ ansible_hostname }}"
