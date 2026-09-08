@@ -1,0 +1,120 @@
+---
+- name: Collect Installed RPM Information
+  hosts: all
+  become: true
+  gather_facts: true
+
+  tasks:
+
+    - name: Collect installed RPM package information
+      shell: |
+        rpm -qa --last | while read -r line; do
+          pkg=$(echo "$line" | sed 's/  .*//')
+          date=$(echo "$line" | sed "s/^$pkg  *//")
+          rpm -q --qf '%{NAME}|%{VERSION}|%{RELEASE}|%{ARCH}\n' "$pkg" 2>/dev/null | \
+          while IFS='|' read -r name version release arch; do
+            echo "{{ inventory_hostname }}|$name|$version|$release|$arch|$date"
+          done
+        done
+      register: rpm_output
+      changed_when: false
+
+    - name: Store RPM information as facts
+      set_fact:
+        rpm_inventory: "{{ rpm_output.stdout_lines }}"
+
+    - name: Create temporary RPM CSV on control node
+      delegate_to: localhost
+      become: false
+      copy:
+        content: |
+          Server,Package Name,Version,Release,Architecture,Installation Date
+          {% for item in hostvars[inventory_hostname].rpm_inventory %}
+          {{ item | replace('|', ',') }}
+          {% endfor %}
+        dest: "/tmp/{{ inventory_hostname }}_rpm_inventory.csv"
+
+- name: Create Excel Report
+  hosts: localhost
+  gather_facts: false
+  become: false
+
+  tasks:
+
+    - name: Check Python openpyxl
+      command: python3 -c "import openpyxl"
+      register: openpyxl_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install openpyxl if required
+      pip:
+        name: openpyxl
+        executable: pip3
+      when: openpyxl_check.rc != 0
+
+    - name: Create Excel file
+      shell: |
+        python3 <<'PYTHON'
+        import csv
+        import glob
+        from openpyxl import Workbook
+        from openpyxl.utils import get_column_letter
+
+        output_file = "/tmp/rpm_inventory_report.xlsx"
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "RPM Inventory"
+
+        headers = [
+            "Server",
+            "Package Name",
+            "Version",
+            "Release",
+            "Architecture",
+            "Installation Date"
+        ]
+
+        ws.append(headers)
+
+        for csv_file in glob.glob("/tmp/*_rpm_inventory.csv"):
+            with open(csv_file, "r") as f:
+                reader = csv.DictReader(f)
+
+                for row in reader:
+                    ws.append([
+                        row["Server"],
+                        row["Package Name"],
+                        row["Version"],
+                        row["Release"],
+                        row["Architecture"],
+                        row["Installation Date"]
+                    ])
+
+        # Make columns readable
+        for column in ws.columns:
+            max_length = 0
+            column_letter = get_column_letter(column[0].column)
+
+            for cell in column:
+                if cell.value:
+                    max_length = max(max_length, len(str(cell.value)))
+
+            ws.column_dimensions[column_letter].width = min(max_length + 2, 50)
+
+        # Freeze header row
+        ws.freeze_panes = "A2"
+
+        # Enable filtering
+        ws.auto_filter.ref = ws.dimensions
+
+        wb.save(output_file)
+
+        print(f"Excel report created: {output_file}")
+        PYTHON
+      register: excel_result
+
+    - name: Display Excel report location
+      debug:
+        msg: "{{ excel_result.stdout }}"
