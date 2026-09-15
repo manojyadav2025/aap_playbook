@@ -1,0 +1,6 @@
+---
+- name: Apply RHEL storage and mount configuration
+  hosts: all
+  become: true
+  roles:
+    - rhel_mounts
