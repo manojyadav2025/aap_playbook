@@ -1,0 +1,119 @@
+#!/bin/bash
+set -e
+
+ROLE_NAME="rhel_mounts"
+
+echo "Creating directory structure for $ROLE_NAME..."
+mkdir -p "$ROLE_NAME/defaults"
+mkdir -p "$ROLE_NAME/tasks"
+mkdir -p "$ROLE_NAME/meta"
+
+echo "Creating defaults/main.yml..."
+cat << 'EOF' > "$ROLE_NAME/defaults/main.yml"
+---
+vg_name: "vg_data"
+fs_type: "xfs"
+
+mount_configs:
+  - { path: "/data", lv: "lv_data", size: "4G" }
+  - { path: "/data2", lv: "lv_data2", size: "7G" }
+  - { path: "/data3", lv: "lv_data3", size: "10G" }
+  - { path: "/data4", lv: "lv_data4", size: "8G" }
+EOF
+
+echo "Creating tasks/main.yml..."
+cat << 'EOF' > "$ROLE_NAME/tasks/main.yml"
+---
+- name: Find unpartitioned raw data disks without existing signatures
+  ansible.builtin.shell: |
+    root_dev=$(lsblk -no pkname "$(findmnt -n -o SOURCE /)" 2>/dev/null || echo "")
+    for disk in $(lsblk -d -n -o NAME | grep -E 'sd|nvme|vd'); do
+      if [ "$disk" != "$root_dev" ] && \
+         ! lsblk -n -o TYPE "/dev/$disk" | grep -q "part" && \
+         test -z "$(lsblk -n -o MOUNTPOINT "/dev/$disk")" && \
+         test -z "$(blkid -s TYPE -o value "/dev/$disk")"; then
+        echo "/dev/$disk"
+      fi
+    done
+  register: target_disks
+  changed_when: false
+
+- name: Fail if no available safe disks are found
+  ansible.builtin.fail:
+    msg: "No safe, unassigned raw disks found on this server."
+  when: target_disks.stdout_lines | length == 0
+
+- name: Display discovered safe disks
+  ansible.builtin.debug:
+    msg: "Found safe raw disks for pooling: {{ target_disks.stdout_lines }}"
+
+- name: Create Volume Group using all discovered disks
+  community.general.lvg:
+    vg: "{{ vg_name }}"
+    pvs: "{{ target_disks.stdout_lines }}"
+    state: present
+
+- name: Create Logical Volumes
+  community.general.lvol:
+    vg: "{{ vg_name }}"
+    lv: "{{ item.lv }}"
+    size: "{{ item.size }}"
+    state: present
+  loop: "{{ mount_configs }}"
+
+- name: Create filesystems on each Logical Volume
+  community.general.filesystem:
+    fstype: "{{ fs_type }}"
+    dev: "/dev/mapper/{{ vg_name }}-{{ item.lv }}"
+    state: present
+  loop: "{{ mount_configs }}"
+
+- name: Create target mount directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    mode: '0755'
+  loop: "{{ mount_configs }}"
+
+- name: Mount filesystems and configure /etc/fstab
+  ansible.posix.mount:
+    path: "{{ item.path }}"
+    src: "/dev/mapper/{{ vg_name }}-{{ item.lv }}"
+    fstype: "{{ fs_type }}"
+    opts: defaults
+    state: mounted
+  loop: "{{ mount_configs }}"
+EOF
+
+echo "Creating meta/main.yml..."
+cat << 'EOF' > "$ROLE_NAME/meta/main.yml"
+---
+galaxy_info:
+  author: "Manoj Kumar"
+  description: "Reusable role to auto-discover raw disks, pool LVM, and configure multiple mounts on RHEL"
+  company: "Enterprise IT"
+  license: "MIT"
+  min_ansible_version: "2.14"
+  platforms:
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+dependencies: []
+EOF
+
+echo "Creating README.md..."
+cat << 'EOF' > "$ROLE_NAME/README.md"
+# Ansible Role: rhel_mounts
+
+An Ansible role that automatically discovers safe, unpartitioned raw disks (bypassing root and ASM signatures), pools them into an LVM Volume Group, creates multiple Logical Volumes, formats them (`xfs`), and configures persistent mounts in `/etc/fstab`.
+EOF
+
+echo "Creating .gitignore..."
+cat << 'EOF' > "$ROLE_NAME/.gitignore"
+.DS_Store
+*.retry
+.ansible/
+EOF
+
+echo "Complete role folder '$ROLE_NAME' has been generated successfully!"

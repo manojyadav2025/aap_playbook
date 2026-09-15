@@ -1,0 +1,13 @@
+---
+galaxy_info:
+  author: "Manoj Kumar"
+  description: "Reusable role to auto-discover raw disks, pool LVM, and configure multiple mounts on RHEL"
+  company: "Enterprise IT"
+  license: "MIT"
+  min_ansible_version: "2.14"
+  platforms:
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+dependencies: []

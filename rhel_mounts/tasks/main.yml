@@ -1,0 +1,60 @@
+---
+- name: Find unpartitioned raw data disks without existing signatures
+  ansible.builtin.shell: |
+    root_dev=$(lsblk -no pkname "$(findmnt -n -o SOURCE /)" 2>/dev/null || echo "")
+    for disk in $(lsblk -d -n -o NAME | grep -E 'sd|nvme|vd'); do
+      if [ "$disk" != "$root_dev" ] && \
+         ! lsblk -n -o TYPE "/dev/$disk" | grep -q "part" && \
+         test -z "$(lsblk -n -o MOUNTPOINT "/dev/$disk")" && \
+         test -z "$(blkid -s TYPE -o value "/dev/$disk")"; then
+        echo "/dev/$disk"
+      fi
+    done
+  register: target_disks
+  changed_when: false
+
+- name: Fail if no available safe disks are found
+  ansible.builtin.fail:
+    msg: "No safe, unassigned raw disks found on this server."
+  when: target_disks.stdout_lines | length == 0
+
+- name: Display discovered safe disks
+  ansible.builtin.debug:
+    msg: "Found safe raw disks for pooling: {{ target_disks.stdout_lines }}"
+
+- name: Create Volume Group using all discovered disks
+  community.general.lvg:
+    vg: "{{ vg_name }}"
+    pvs: "{{ target_disks.stdout_lines }}"
+    state: present
+
+- name: Create Logical Volumes
+  community.general.lvol:
+    vg: "{{ vg_name }}"
+    lv: "{{ item.lv }}"
+    size: "{{ item.size }}"
+    state: present
+  loop: "{{ mount_configs }}"
+
+- name: Create filesystems on each Logical Volume
+  community.general.filesystem:
+    fstype: "{{ fs_type }}"
+    dev: "/dev/mapper/{{ vg_name }}-{{ item.lv }}"
+    state: present
+  loop: "{{ mount_configs }}"
+
+- name: Create target mount directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    mode: '0755'
+  loop: "{{ mount_configs }}"
+
+- name: Mount filesystems and configure /etc/fstab
+  ansible.posix.mount:
+    path: "{{ item.path }}"
+    src: "/dev/mapper/{{ vg_name }}-{{ item.lv }}"
+    fstype: "{{ fs_type }}"
+    opts: defaults
+    state: mounted
+  loop: "{{ mount_configs }}"
