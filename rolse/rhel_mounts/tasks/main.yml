@@ -1,4 +1,10 @@
 ---
+- name: Check if triggered by webhook on a non-main branch
+  ansible.builtin.meta: end_play
+  when: 
+    - ansible_tower_web_hook_payload is defined
+    - git_branch | default('main') != 'main'
+
 - name: Find unpartitioned raw data disks without existing signatures
   ansible.builtin.shell: |
     root_dev=$(lsblk -no pkname "$(findmnt -n -o SOURCE /)" 2>/dev/null || echo "")

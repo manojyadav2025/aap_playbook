@@ -1,9 +1,9 @@
 ---
-vg_name: "vg_data"
+vg_name: "vg_test"
 fs_type: "xfs"
 
 mount_configs:
-  - { path: "/data", lv: "lv_data", size: "4G" }
+  - { path: "/test", lv: "lv_data", size: "4G" }
   - { path: "/data2", lv: "lv_data2", size: "7G" }
   - { path: "/data3", lv: "lv_data3", size: "10G" }
   - { path: "/data4", lv: "lv_data4", size: "8G" }
