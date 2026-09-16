@@ -1,0 +1,31 @@
+---
+- name: Install and Configure Nginx on RHEL 10
+  hosts: webservers
+  become: yes
+  
+  tasks:
+    - name: Ensure Nginx is installed
+      ansible.builtin.dnf:
+        name: nginx
+        state: present
+
+    - name: Ensure Nginx service is started and enabled
+      ansible.builtin.service:
+        name: nginx
+        state: started
+        enabled: yes
+
+    - name: Create custom index.html home page
+      ansible.builtin.copy:
+        content: "This is My Playbook"
+        dest: /usr/share/nginx/html/index.html
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Allow HTTP traffic through the firewall
+      ansible.builtin.firewalld:
+        service: http
+        permanent: yes
+        state: enabled
+        immediate: yes
