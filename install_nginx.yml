@@ -1,6 +1,6 @@
 ---
 - name: Install and Configure Nginx on RHEL 10
-  hosts: webservers
+  hosts: all
   become: yes
   
   tasks:
