@@ -118,16 +118,16 @@
           </body>
           </html>
 
-    - name: Copy report to ansible.test.manoj.co.in using SCP
-      ansible.builtin.command:
-        argv:
-          - scp
-          - -o
-          - BatchMode=yes
-          - "{{ report_output }}"
-          - "{{ report_server }}:{{ report_remote_path }}"
-      changed_when: true
-
+#    - name: Copy report to ansible.test.manoj.co.in using SCP
+#      ansible.builtin.command:
+#        argv:
+#          - scp
+#          - -o
+#          - BatchMode=yes
+#          - "{{ report_output }}"
+#          - "{{ report_server }}:{{ report_remote_path }}"
+#      changed_when: true
+#
     - name: Email report to Hotmail using Gmail SMTP
       community.general.mail:
         host: "{{ smtp_host }}"
