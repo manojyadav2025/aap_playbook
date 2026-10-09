@@ -32,7 +32,7 @@
           {{ 'Yes' if telnet_check.rc | default(1) == 0 else 'No' }}
 
 - name: Generate consolidated HTML report
-  hosts: localhost
+  hosts: ansible.test.manoj.co.in
   connection: local
   gather_facts: false
 
