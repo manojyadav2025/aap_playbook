@@ -1,0 +1,100 @@
+---
+- name: Collect RHEL server details and generate HTML report
+  hosts: all
+  gather_facts: true
+  become: true
+
+  tasks:
+    - name: Get latest RPM installation information
+      ansible.builtin.shell: "rpm -qa --last | head -n 1"
+      register: latest_rpm
+      changed_when: false
+      failed_when: false
+
+    - name: Check Telnet package installation
+      ansible.builtin.command: rpm -q telnet
+      register: telnet_check
+      changed_when: false
+      failed_when: false
+
+    - name: Store server details
+      ansible.builtin.set_fact:
+        report_hostname: "{{ ansible_hostname | default(inventory_hostname) }}"
+        report_ip: >-
+          {{ ansible_default_ipv4.address
+             | default(ansible_host | default('Not available')) }}
+        report_kernel: "{{ ansible_kernel | default('Not available') }}"
+        report_last_patch: >-
+          {{ latest_rpm.stdout | default('Not available')
+             if latest_rpm.rc | default(1) == 0
+             else 'Not available' }}
+        report_telnet: >-
+          {{ 'Yes' if telnet_check.rc | default(1) == 0 else 'No' }}
+
+- name: Generate consolidated HTML report
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    report_output: /tmp/rhel_server_report.html
+    report_group: rhel_servers
+
+  tasks:
+    - name: Generate HTML report
+      ansible.builtin.copy:
+        dest: "{{ report_output }}"
+        mode: "0644"
+        content: |
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+          <meta charset="UTF-8">
+          <title>RHEL Server Report</title>
+          <style>
+          body { font-family: Arial, sans-serif; margin: 25px; }
+          h2 { color: #8b0000; }
+          table { border-collapse: collapse; width: 100%; }
+          th, td { border: 1px solid #ccc; padding: 9px; text-align: left; }
+          th { background: #8b0000; color: white; }
+          tr:nth-child(even) { background: #f2f2f2; }
+          </style>
+          </head>
+          <body>
+          <h2>RHEL Server Inventory and Patch Report</h2>
+          <p>Report generated: {{ now(utc=true, fmt='%Y-%m-%d %H:%M:%S') }} UTC</p>
+          <p>Total servers: {{ groups[report_group] | default([]) | length }}</p>
+          <table>
+          <thead>
+          <tr>
+          <th>Hostname</th>
+          <th>IP Address</th>
+          <th>Kernel Version</th>
+          <th>Last Patch Date</th>
+          <th>Telnet Package Installed</th>
+          </tr>
+          </thead>
+          <tbody>
+          {% for host in groups[report_group] | default([]) | sort %}
+          {% set d = hostvars[host] %}
+          <tr>
+          <td>{{ d.report_hostname | default(host) | e }}</td>
+          <td>{{ d.report_ip | default('Not available') | e }}</td>
+          <td>{{ d.report_kernel | default('Not available') | e }}</td>
+          <td>{{ d.report_last_patch | default('Not available') | e }}</td>
+          <td>{{ d.report_telnet | default('No') | e }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5">No servers found.</td></tr>
+          {% endfor %}
+          </tbody>
+          </table>
+          <p><small>Note: Last Patch Date currently represents the latest
+          RPM installation information, not necessarily the last security
+          patch or system update transaction.</small></p>
+          </body>
+          </html>
+
+    - name: Display report location
+      ansible.builtin.debug:
+        msg: "Report generated at {{ report_output }}"
