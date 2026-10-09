@@ -1,5 +1,5 @@
 ---
-- name: Collect RHEL server details and generate HTML report
+- name: Collect RHEL server information
   hosts: all
   gather_facts: true
   become: true
@@ -31,38 +31,60 @@
         report_telnet: >-
           {{ 'Yes' if telnet_check.rc | default(1) == 0 else 'No' }}
 
-- name: Generate consolidated HTML report
-  hosts: ansible.test.manoj.co.in
+- name: Generate, transfer and email HTML report
+  hosts: localhost
   connection: local
   gather_facts: false
 
   vars:
     report_output: /tmp/rhel_server_report.html
-    report_group: rhel_servers
+    report_server: ansible.test.manoj.co.in
+    report_remote_path: /tmp/rhel_server_report.html
+    report_group: all
+    smtp_host: smtp.gmail.com
+    smtp_port: 587
+    smtp_username: "{{ smtp_username }}"
+    smtp_password: "{{ smtp_password }}"
+    report_recipient: manoj_yadav@hotmail.com
 
   tasks:
-    - name: Generate HTML report
+    - name: Generate consolidated HTML report
       ansible.builtin.copy:
         dest: "{{ report_output }}"
-        mode: "0644"
+        mode: "0600"
         content: |
           <!DOCTYPE html>
           <html lang="en">
           <head>
           <meta charset="UTF-8">
-          <title>RHEL Server Report</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>RHEL Server Inventory and Patch Report</title>
           <style>
-          body { font-family: Arial, sans-serif; margin: 25px; }
+          body {
+            font-family: Arial, sans-serif;
+            margin: 25px;
+            color: #222;
+          }
           h2 { color: #8b0000; }
-          table { border-collapse: collapse; width: 100%; }
-          th, td { border: 1px solid #ccc; padding: 9px; text-align: left; }
-          th { background: #8b0000; color: white; }
+          table {
+            border-collapse: collapse;
+            width: 100%;
+          }
+          th, td {
+            border: 1px solid #ccc;
+            padding: 9px;
+            text-align: left;
+          }
+          th {
+            background: #8b0000;
+            color: white;
+          }
           tr:nth-child(even) { background: #f2f2f2; }
           </style>
           </head>
           <body>
           <h2>RHEL Server Inventory and Patch Report</h2>
-          <p>Report generated: {{ now(utc=true, fmt='%Y-%m-%d %H:%M:%S') }} UTC</p>
+          <p>Generated: {{ now(utc=true, fmt='%Y-%m-%d %H:%M:%S') }} UTC</p>
           <p>Total servers: {{ groups[report_group] | default([]) | length }}</p>
           <table>
           <thead>
@@ -89,12 +111,52 @@
           {% endfor %}
           </tbody>
           </table>
-          <p><small>Note: Last Patch Date currently represents the latest
-          RPM installation information, not necessarily the last security
-          patch or system update transaction.</small></p>
+          <p><small>
+          Note: Last Patch Date represents the latest RPM installation
+          information and is not necessarily the last security patch date.
+          </small></p>
           </body>
           </html>
 
-    - name: Display report location
+    - name: Copy report to ansible.test.manoj.co.in using SCP
+      ansible.builtin.command:
+        argv:
+          - scp
+          - -o
+          - BatchMode=yes
+          - "{{ report_output }}"
+          - "{{ report_server }}:{{ report_remote_path }}"
+      changed_when: true
+
+    - name: Email report to Hotmail using Gmail SMTP
+      community.general.mail:
+        host: "{{ smtp_host }}"
+        port: "{{ smtp_port }}"
+        secure: starttls
+        username: "{{ smtp_username }}"
+        password: "{{ smtp_password }}"
+        to: "{{ report_recipient }}"
+        from: "{{ smtp_username }}"
+        subject: "RHEL Server Inventory and Patch Report"
+        subtype: plain
+        body: |
+          Hello,
+
+          Please find attached the consolidated RHEL server inventory
+          and patch report.
+
+          The report is also available on:
+          {{ report_server }}:{{ report_remote_path }}
+
+          Regards,
+          Ansible Automation Platform
+        attach:
+          - "{{ report_output }}"
+      no_log: true
+
+    - name: Confirm report generation and delivery tasks
       ansible.builtin.debug:
-        msg: "Report generated at {{ report_output }}"
+        msg:
+          - "HTML report generated: {{ report_output }}"
+          - "Report transfer destination: {{ report_server }}:{{ report_remote_path }}"
+          - "Email delivery task completed for {{ report_recipient }}"
